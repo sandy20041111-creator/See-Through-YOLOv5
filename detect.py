@@ -361,6 +361,20 @@ def run(
                 # 在影像畫面上壓上全新的二元 ADAS 提示字樣
                 cv2.putText(im0, f"ADAS: {frame_status}", (c_x1 + 10, int(0.1 * h)), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                
+                import os
+                
+                # 1. 定義你要存放的主資料夾名稱 (直接放在專案根目錄下的 ADAS_Output 裡)
+                save_folder = f"ADAS_Output/Status_{frame_status}"
+                
+                # 2. 如果資料夾還沒被建立，程式會自動幫你建好 (exist_ok=True 讓它不會報錯)
+                os.makedirs(save_folder, exist_ok=True)
+                
+                # 3. 組合出完整的圖片儲存路徑 (例如: ADAS_Output/Status_1/test3.jpg)
+                custom_save_path = os.path.join(save_folder, p.name)
+                
+                # 4. 將畫好 HUD 遮罩的最終圖片存進對應的資料夾
+                cv2.imwrite(custom_save_path, im0)
  
 
             # Stream results
