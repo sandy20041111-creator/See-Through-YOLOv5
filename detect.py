@@ -342,7 +342,7 @@ def run(
 
                     # 🚀 ADAS 二元編碼判定 (0 或 1)
                     # 這邊只要判斷 final_class_name 是不是 VRU 即可 (因為補丁已經套套用了)
-                    if final_class_name in vulnerable_road_users and y_bottom > 0.55:
+                    if final_class_name in vulnerable_road_users and y_bottom > 0.15:
                         # 【🏆 嚴格中線守護】：遵循用戶用戶需求，只有踩進中央紅框 (0.35~0.65) 才跳 1！
                         if (0.35 <= x_center <= 0.65):
                             frame_status = "1"
