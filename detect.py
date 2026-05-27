@@ -279,6 +279,7 @@ def run(
 
                 # Write results
                 frame_status = "0" 
+                overlay = im0.copy()
 
                 for *xyxy, conf, cls in reversed(det):
                     c = int(cls)
@@ -290,58 +291,57 @@ def run(
                     xywh_ratio = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()
                     x_center = xywh_ratio[0]
                     y_center = xywh_ratio[1]
-                    w_ratio = xywh_ratio[2]
-                    y_bottom = y_center + (xywh_ratio[3] / 2)
+                    w_ratio = xywh_ratio[2]  
+                    y_bottom = y_center + (xywh_ratio[3] / 2) # 接地點
 
                     # 💡 【過濾左下角反光】
                     if class_name == 'car' and (x_center < 0.30 and y_center > 0.70):
                         continue 
 
                     # =================================================================
-                    if save_csv:
-                        write_to_csv(p.name, class_name, confidence_str)
-                    if save_txt:  
-                        if save_format == 0:
-                            coords = ((xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist())
-                        else:
-                            coords = (torch.tensor(xyxy).view(1, 4) / gn).view(-1).tolist()
-                        line = (cls, *coords, conf) if save_conf else (cls, *coords)
-                        with open(f"{txt_path}.txt", "a") as f:
-                            f.write(("%g " * len(line)).rstrip() % line + "\n")
-                    
-                    # 🔥 【終極修復】：拔掉 if save_img 條件，無視 --nosave，強迫每隻抓到的物件都必須畫上辨識框！
                     display_label = None if hide_labels else (class_name if hide_conf else f"{class_name} {conf:.2f}")
                     annotator.box_label(xyxy, display_label, color=colors(c, True))
                     
-                    if save_crop:
-                        save_one_box(xyxy, imc, file=save_dir / "crops" / class_name / f"{p.stem}.jpg", BGR=True)
+                    if save_csv: write_to_csv(p.name, class_name, confidence_str)
+                    if save_txt:  
+                        if save_format == 0: coords = ((xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist())
+                        else: coords = (torch.tensor(xyxy).view(1, 4) / gn).view(-1).tolist()
+                        line = (cls, *coords, conf) if save_conf else (cls, *coords)
+                        with open(f"{txt_path}.txt", "a") as f: f.write(("%g " * len(line)).rstrip() % line + "\n")
+                    if save_crop: save_one_box(xyxy, imc, file=save_dir / "crops" / class_name / f"{p.stem}.jpg", BGR=True)
                     # =================================================================
 
-                    # 🚀 智慧寬度補丁與狀態判定
+                    # 🚀 See Through 畢業製作：智慧補丁 + 嚴格中線防禦
                     vulnerable_road_users = ['person', 'motorcycle', 'bicycle']
                     is_vru = False
+                    
                     if class_name in vulnerable_road_users:
                         is_vru = True
-                    elif class_name == 'car' and w_ratio < 0.15: 
+                    # 🔥【智慧補丁保留】：右側區域(x>0.65)的汽車，只要寬度小於 25%，強制轉為機車！
+                    elif class_name == 'car' and x_center > 0.65 and w_ratio < 0.25: 
+                        is_vru = True
+                    # 全畫面的極窄補丁
+                    elif class_name == 'car' and w_ratio < 0.15:
                         is_vru = True
 
+                    # 💡 接地點過濾 (y_bottom > 0.55)：只管離車頭夠近的物件
                     if is_vru and y_bottom > 0.55:
+                        # 【🏆 嚴格中線守護】：只有踩進正前方紅框 (0.35~0.65) 才允許跳 1！
                         if (0.35 <= x_center <= 0.65):
                             frame_status = "1"
+                        # 兩側區域就算抓到機車，因為不影響正前方動線，維持 0 不處理。
 
                 # =================================================================
                 # 🎨 HUD 級視覺化 與 實體分類存檔
                 # =================================================================
-                # 1. 把剛剛「強迫畫好」的辨識框，正式沖印到 im0 實體照片上！
-                im0 = annotator.result()
-                
-                # 2. 複製一張擁有辨識框的照片，準備畫半透明陰影
-                overlay = im0.copy()
+                im0 = annotator.result() 
+                overlay = im0.copy() 
 
                 print(f"{frame_status}") 
 
                 h, w, _ = im0.shape
                 
+                # 繪製半透明紅橘陰影
                 c_x1, c_y1 = int(0.35 * w), 0
                 c_x2, c_y2 = int(0.65 * w), h
                 cv2.rectangle(overlay, (c_x1, c_y1), (c_x2, c_y2), (0, 0, 255), -1)
@@ -360,11 +360,10 @@ def run(
                 cv2.putText(im0, f"ADAS: {frame_status}", (c_x1 + 10, int(0.1 * h)), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
                 
-                # 📁 分類存檔
+                # 📁 實體分類存檔
                 import os
                 save_folder = f"ADAS_Output/Status_{frame_status}"
                 os.makedirs(save_folder, exist_ok=True)
-                
                 custom_save_path = os.path.join(save_folder, p.name)
                 cv2.imwrite(custom_save_path, im0)
  
