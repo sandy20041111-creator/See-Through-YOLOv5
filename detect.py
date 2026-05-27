@@ -334,6 +334,9 @@ def run(
                         # 左右兩側（0.15~0.35 與 0.65~0.85）在視覺上維持原有 ROI 陰影以提醒駕駛，
                         # 但在編碼邏輯上屬於「其他情況」，故不改變 frame_status，使其保持預設的 "0"。
 
+                im0 = annotator.result()
+                overlay = im0.copy()
+                
                 # 🎨 HUD 級視覺化：維持原有視覺區域，僅更新文字顯示
                 print(f"{frame_status}") # 終端機高頻噴出 0 或 1
 
