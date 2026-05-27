@@ -283,8 +283,8 @@ def run(
 
                 for *xyxy, conf, cls in reversed(det):
                     c = int(cls)
-                    original_class_name = names[c] # 💡 記錄原廠 AI 抓到的名字 (可能是 'car')
-                    final_class_name = original_class_name # 預設預設 final 名稱為原廠名稱
+                    original_class_name = names[c] 
+                    final_class_name = original_class_name 
                     
                     confidence = float(conf)
                     confidence_str = f"{confidence:.2f}"
@@ -293,44 +293,36 @@ def run(
                     xywh_ratio = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()
                     x_center = xywh_ratio[0]
                     y_center = xywh_ratio[1]
-                    w_ratio = xywh_ratio[2]  # 物件佔據畫面的寬度比例
-                    y_bottom = y_center + (xywh_ratio[3] / 2) # 接地點
+                    w_ratio = xywh_ratio[2]  # 物件寬度比例
+                    h_ratio = xywh_ratio[3]  # 💡 新增：物件高度比例
+                    
+                    # 💡 核心武器：計算「物件寬高比」(Aspect Ratio) = 寬度 / 高度
+                    aspect_ratio = w_ratio / h_ratio 
+                    
+                    y_bottom = y_center + (h_ratio / 2) # 接地點
 
                     # 💡 【過濾左下角反光】
                     if original_class_name == 'car' and (x_center < 0.30 and y_center > 0.70):
                         continue 
 
                     # =================================================================
-                    # 🚀 See Through 畢業製作：【視覺 Override】智慧補丁
+                    # 🚀 See Through 畢業製作：【視覺 Override】幾何學寬高比補丁
                     # =================================================================
-                    # 💡 我們要在畫框框「之前」，強制把名字改掉！
                     vulnerable_road_users = ['person', 'motorcycle', 'bicycle']
                     
-                    is_overridden_vru = False # 記錄是否為強制轉正的 VRU
-
-                    # 💎 【終極智慧補丁】：定點定點清除右側機車误判！
-                    # 如果是汽車，出現在右側(x > 0.65)，寬度不大於 28%(微調 Threshold)，且接地點離我們夠近
-                    if original_class_name == 'car' and x_center > 0.65 and w_ratio < 0.28 and y_bottom > 0.55: 
-                        final_class_name = 'motorcycle' # 🚨 強制 Override 視覺標籤！
-                        is_overridden_vru = True
-                        bbox_color = (255, 105, 180) # 🎨 神來之筆：把誤判的車框改成「粉紅色」，強調工程師的補丁！
-                    
-                    # 全畫面的極窄汽車補丁 (防止鑽車縫誤判)
-                    elif original_class_name == 'car' and w_ratio < 0.15:
-                        final_class_name = 'motorcycle'
-                        is_overridden_vru = True
-                        bbox_color = (255, 105, 180) # 🎨 粉紅色補丁
+                    # 💎 【進化版智慧補丁】：用「物件形狀」分辨，徹底免疫距離干擾！
+                    # 如果 AI 判斷是汽車，但它的形狀是「瘦高型或正方形 (寬高比 < 1.1)」，強制轉正為機車！
+                    if original_class_name == 'car' and aspect_ratio < 1.1: 
+                        final_class_name = 'motorcycle' 
+                        bbox_color = (255, 105, 180) # 粉紅色標註
                     else:
-                        bbox_color = colors(c, True) # 其餘維持原廠顏色
+                        bbox_color = colors(c, True) # 真正的扁長形汽車，維持原廠顏色
 
                     # =================================================================
-                    # 🔥 畫框框邏輯 (現在使用 final_class_name，無視 --nosave)
-                    # =================================================================
-                    # 這裡就會畫上修正後的 final_class_name (即 'motorcycle')！
+                    # 畫框與存檔邏輯
                     display_label = None if hide_labels else (final_class_name if hide_conf else f"{final_class_name} {conf:.2f}")
-                    annotator.box_label(xyxy, display_label, color=bbox_color) # 畫上 final 標籤與顏色
+                    annotator.box_label(xyxy, display_label, color=bbox_color) 
                     
-                    # (CSV/TXT 存檔也建議使用 final_class_name 以利數據分析)
                     if save_csv: write_to_csv(p.name, final_class_name, confidence_str)
                     if save_txt:  
                         if save_format == 0: coords = ((xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist())
@@ -340,13 +332,12 @@ def run(
                     if save_crop: save_one_box(xyxy, imc, file=save_dir / "crops" / final_class_name / f"{p.stem}.jpg", BGR=True)
                     # =================================================================
 
-                    # 🚀 ADAS 二元編碼判定 (0 或 1)
-                    # 這邊只要判斷 final_class_name 是不是 VRU 即可 (因為補丁已經套套用了)
-                    if final_class_name in vulnerable_road_users and y_bottom > 0.15:
-                        # 【🏆 嚴格中線守護】：遵循用戶用戶需求，只有踩進中央紅框 (0.35~0.65) 才跳 1！
+                    # 🚀 ADAS 深度與範圍判定
+                    # 深度放寬至 0.45，確保紅框內的物件能順利觸發
+                    if final_class_name in vulnerable_road_users and y_bottom > 0.45:
+                        # 【🏆 嚴格中線守護】：只要踩進中央紅框 (0.35~0.65) 才跳 1！
                         if (0.35 <= x_center <= 0.65):
                             frame_status = "1"
-                        # 💡 右邊那台被強轉成 motorcycle 的車因為踩在 x > 0.65，所以狀態維持 0，完美！
 
                 # =================================================================
                 # 🎨 HUD 級視覺化 與 實體分類存檔
