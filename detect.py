@@ -278,7 +278,7 @@ def run(
                     s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
 
                 # Write results
-                frame_status = "00" 
+                frame_status = "0" 
                 overlay = im0.copy()
 
                 for *xyxy, conf, cls in reversed(det):
@@ -316,52 +316,49 @@ def run(
                         save_one_box(xyxy, imc, file=save_dir / "crops" / class_name / f"{p.stem}.jpg", BGR=True)
                     # =================================================================
 
-                    # 🚀 See Through 畢業製作：智慧補丁與深度過濾
+                    # 🚀 See Through 畢業製作：智慧補丁與二元編碼邏輯
                     vulnerable_road_users = ['person', 'motorcycle', 'bicycle']
                     
-                    # 判斷是否為弱勢用路人 (包含「寬度極窄的誤判汽車」)
+                    # 智慧寬度補丁
                     is_vru = False
                     if class_name in vulnerable_road_users:
                         is_vru = True
-                    elif class_name == 'car' and w_ratio < 0.15: # 如果是汽車，但寬度不到畫面 15%，強制視為機車！
+                    elif class_name == 'car' and w_ratio < 0.15: 
                         is_vru = True
 
-                    # 💡 【過濾路邊與遠處停放車輛】：
-                    # 1. y_bottom > 0.55 代表只管離車頭夠近的物體
-                    # 2. X 軸去頭去尾 (捨棄 x < 0.15 與 x > 0.85 的最邊緣路肩雜訊)
+                    # 💡 過濾遠處停放車輛與路邊雜訊
                     if is_vru and y_bottom > 0.55:
-                        # 【中央危險區 C】：縮窄回 0.35 ~ 0.65，貼齊正前方車道
+                        # 【中央危險區】：只要物件踩進 0.35 ~ 0.65，狀態立刻切換為 "1"
                         if (0.35 <= x_center <= 0.65):
-                            frame_status = "10"
-                        # 【左側威脅區】：0.15 ~ 0.35 (不包含最左邊 0.0~0.15 的路邊攤)
-                        elif (0.15 <= x_center < 0.35):
-                            if frame_status != "10": frame_status = "01"
-                        # 【右側威脅區】：0.65 ~ 0.85 (不包含最右邊 0.85~1.0 的人行道)
-                        elif (0.65 < x_center <= 0.85):
-                            if frame_status != "10": frame_status = "01"
+                            frame_status = "1"
+                        # 左右兩側（0.15~0.35 與 0.65~0.85）在視覺上維持原有 ROI 陰影以提醒駕駛，
+                        # 但在編碼邏輯上屬於「其他情況」，故不改變 frame_status，使其保持預設的 "0"。
 
-                # 🎨 HUD 級視覺化：根據新版尺寸繪製半透明陰影
-                print(f"{frame_status}") 
+                # 🎨 HUD 級視覺化：維持原有視覺區域，僅更新文字顯示
+                print(f"{frame_status}") # 終端機高頻噴出 0 或 1
 
                 h, w, _ = im0.shape
                 
-                # 紅色危險區 (縮窄版)
+                # 紅色中央危險區 (0.35 ~ 0.65)
                 c_x1, c_y1 = int(0.35 * w), 0
                 c_x2, c_y2 = int(0.65 * w), h
                 cv2.rectangle(overlay, (c_x1, c_y1), (c_x2, c_y2), (0, 0, 255), -1)
                 
-                # 橘色左側威脅區 (往內縮)
+                # 橘色左側威脅區 (0.15 ~ 0.35)
                 l_x1, l_y1 = int(0.15 * w), 0
                 l_x2, l_y2 = int(0.35 * w), h
                 cv2.rectangle(overlay, (l_x1, l_y1), (l_x2, l_y2), (0, 120, 255), -1)
                 
-                # 橘色右側威脅區 (往內縮)
+                # 橘色右側威脅區 (0.65 ~ 0.85)
                 r_x1, r_y1 = int(0.65 * w), 0
                 r_x2, r_y2 = int(0.85 * w), h
                 cv2.rectangle(overlay, (r_x1, r_y1), (r_x2, r_y2), (0, 120, 255), -1)
 
+                # 半透明圖層融合
                 alpha, beta = 0.88, 0.12
                 cv2.addWeighted(overlay, beta, im0, alpha, 0, im0)
+                
+                # 在影像畫面上壓上全新的二元 ADAS 提示字樣
                 cv2.putText(im0, f"ADAS: {frame_status}", (c_x1 + 10, int(0.1 * h)), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
  
