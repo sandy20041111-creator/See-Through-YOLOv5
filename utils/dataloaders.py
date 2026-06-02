@@ -1,3 +1,4 @@
+
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 """Dataloaders and dataset utils."""
 
@@ -405,8 +406,10 @@ class LoadImages:
         self.frame = 0
         self.cap = cv2.VideoCapture(path)
         self.frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT) / self.vid_stride)
-        self.orientation = int(self.cap.get(cv2.CAP_PROP_ORIENTATION_META))  # rotation degrees
+        self.orientation = int(self.cap.get(cv2.CAP_PROP_ORIENTATION_META)) if hasattr(cv2, 'CAP_PROP_ORIENTATION_META') else 0
+        #self.orientation = int(self.cap.get(cv2.CAP_PROP_ORIENTATION_META))  # rotation degrees
         # self.cap.set(cv2.CAP_PROP_ORIENTATION_AUTO, 0)  # disable https://github.com/ultralytics/yolov5/issues/8493
+
 
     def _cv2_rotate(self, im):
         """Rotates a cv2 image based on its orientation; supports 0, 90, and 180 degrees rotations."""
