@@ -169,6 +169,19 @@ def run(
         run(source='data/videos/example.mp4', weights='yolov5s.pt', conf_thres=0.4, device='0')
         ```
     """
+    import csv as _csv
+
+    speed_profile = {}
+    csv_speed_path = "speed_profile.csv"  # CSV 檔案放在專案根目錄
+    try:
+        with open(csv_speed_path, "r") as f:
+            reader = _csv.DictReader(f)
+            for row in reader:
+                speed_profile[int(row["time_sec"])] = int(row["speed_kmh"])
+        print(f"✅ 車速時序檔案載入成功，共 {len(speed_profile)} 筆資料")
+    except FileNotFoundError:
+        print(f"⚠️  找不到 {csv_speed_path}，車速預設為 0（所有 ROI 關閉）")
+ 
     source = str(source)
     is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
     is_url = source.lower().startswith(("rtsp://", "rtmp://", "http://", "https://"))
@@ -277,6 +290,19 @@ def run(
             
             h, w, _ = im0.shape
 
+            current_time_sec = int(frame / 30)  # 30 FPS，幀數除以 FPS 取得秒數
+            current_speed = speed_profile.get(current_time_sec, 0)  # 查表，找不到預設 0
+ 
+            # 依車速決定哪些深度層要啟用
+            if current_speed == 0:
+                active_depths = []                        # 靜止不預警
+            elif 1 <= current_speed <= 30:
+                active_depths = ["near"]                  # 低速：只開近端
+            elif 31 <= current_speed <= 50:
+                active_depths = ["near", "mid"]           # 中速：近端＋中端
+            else:
+                active_depths = ["near", "mid", "far"]    # 高速：全開
+
             # =================================================================
             # 💡 新邏輯：先定義一個「大梯形」的左右邊界斜線方程式，
             # 再用水平線在不同高度切出近/中/遠三層，確保所有層級的
@@ -365,12 +391,17 @@ def run(
             }
 
             for (pos, depth), pts in roi_zones.items():
+                if depth not in active_depths:
+                    continue  # 這層沒啟用，跳過不畫
+ 
                 color = pos_colors[pos]
                 alpha = depth_alpha[depth]
                 temp = overlay.copy()
                 cv2.fillPoly(temp, [pts], color)
                 cv2.addWeighted(temp, alpha, overlay, 1 - alpha, 0, overlay)
                 cv2.polylines(overlay, [pts], isClosed=True, color=color, thickness=1)
+
+
             if len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()
@@ -433,13 +464,15 @@ def run(
                     # =================================================================
                     vulnerable_road_users = ['person', 'motorcycle', 'bicycle']
                     if final_class_name in vulnerable_road_users:
-                        # 將比例轉換回「實際的像素座標」
                         bottom_center_x = int(x_center * w)
                         bottom_center_y = int(y_bottom * h)
-                        
-                        # 核心幾何判定：落點是否有踩進新調校的梯形 (pts) 裡面？
-                        if cv2.pointPolygonTest(pts, (bottom_center_x, bottom_center_y), False) >= 0:
-                            danger_detected_now = True
+
+                        for (pos, depth), zone_pts in roi_zones.items():
+                            if depth not in active_depths:
+                                continue
+                            if cv2.pointPolygonTest(zone_pts, (bottom_center_x, bottom_center_y), False) >= 0:
+                                danger_detected_now = True
+                                break
 
             # =================================================================
             # 🔥 2. 防抖結算與狀態碼輸出 (確保連續輸出)
@@ -472,9 +505,13 @@ def run(
             text_color = (0, 0, 255) if frame_status == "1" else (0, 255, 0)
             cv2.putText(im0, f"ADAS: {frame_status}", (int(w * 0.35), int(h * 0.15)), 
                         cv2.FONT_HERSHEY_SIMPLEX, 1.2, text_color, 3)
+            
+            cv2.putText(im0, f"Speed: {current_speed} km/h", 
+                        (int(w * 0.35), int(h * 0.22)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0,
+                        (255, 255, 255), 2)
 
             # Stream results
-            im0 = annotator.result()
             if view_img:
                 if platform.system() == "Linux" and p not in windows:
                     windows.append(p)
