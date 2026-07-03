@@ -119,6 +119,7 @@ def run(
     half=False,  # use FP16 half-precision inference
     dnn=False,  # use OpenCV DNN for ONNX inference
     vid_stride=1,  # video frame-rate stride
+    speed="speed_profile.csv",
 ):
     """Runs YOLOv5 detection inference on various sources like images, videos, directories, streams, etc.
 
@@ -172,7 +173,7 @@ def run(
     import csv as _csv
 
     speed_profile = {}
-    csv_speed_path = "speed_profile.csv"  # CSV 檔案放在專案根目錄
+    csv_speed_path = speed  # CSV 檔案放在專案根目錄
     try:
         with open(csv_speed_path, "r") as f:
             reader = _csv.DictReader(f)
@@ -183,6 +184,12 @@ def run(
         print(f"⚠️  找不到 {csv_speed_path}，車速預設為 0（所有 ROI 關閉）")
  
     source = str(source)
+    # 自動讀取影片 FPS
+    import cv2 as _cv2
+    _cap = _cv2.VideoCapture(source)
+    fps = _cap.get(_cv2.CAP_PROP_FPS) if _cap.isOpened() else 30
+    _cap.release()
+    print(f"✅ 影片 FPS：{fps}")
     is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
     is_url = source.lower().startswith(("rtsp://", "rtmp://", "http://", "https://"))
     webcam = source.isnumeric() or source.endswith(".streams") or (is_url and not is_file)
@@ -292,7 +299,7 @@ def run(
             
             h, w, _ = im0.shape
 
-            current_time_sec = int(frame / 30)  # 30 FPS，幀數除以 FPS 取得秒數
+            current_time_sec = int(frame / fps)  # 30 FPS，幀數除以 FPS 取得秒數
             current_speed = speed_profile.get(current_time_sec, 0)  # 查表，找不到預設 0
  
             # 依車速決定哪些深度層要啟用
@@ -564,13 +571,13 @@ def run(
                         if isinstance(vid_writer[i], cv2.VideoWriter):
                             vid_writer[i].release()  # release previous video writer
                         if vid_cap:  # video
-                            fps = vid_cap.get(cv2.CAP_PROP_FPS)
+                            _fps_out = vid_cap.get(cv2.CAP_PROP_FPS)  # ← 改這行，用 _fps_out 存輸出用的fps
                             w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                             h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        else:  # stream
-                            fps, w, h = 30, im0.shape[1], im0.shape[0]
-                        save_path = str(Path(save_path).with_suffix(".mp4"))  # force *.mp4 suffix on results videos
-                        vid_writer[i] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+                        else:
+                            _fps_out, w, h = 30, im0.shape[1], im0.shape[0]
+                        save_path = str(Path(save_path).with_suffix(".mp4"))
+                        vid_writer[i] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*"mp4v"), _fps_out, (w, h))
                     vid_writer[i].write(im0)
 
         # Print time (inference-only)
@@ -639,6 +646,7 @@ def parse_opt():
     parser.add_argument("--iou-thres", type=float, default=0.45, help="NMS IoU threshold")
     parser.add_argument("--max-det", type=int, default=1000, help="maximum detections per image")
     parser.add_argument("--device", default="", help="cuda device, i.e. 0 or 0,1,2,3 or cpu")
+    parser.add_argument("--speed", type=str, default="speed_profile.csv", help="車速時序CSV檔案路徑")
     parser.add_argument("--view-img", action="store_true", help="show results")
     parser.add_argument("--save-txt", action="store_true", help="save results to *.txt")
     parser.add_argument(
