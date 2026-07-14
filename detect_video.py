@@ -119,7 +119,6 @@ def run(
     half=False,  # use FP16 half-precision inference
     dnn=False,  # use OpenCV DNN for ONNX inference
     vid_stride=1,  # video frame-rate stride
-    speed="speed_profile.csv",
 ):
     """Runs YOLOv5 detection inference on various sources like images, videos, directories, streams, etc.
 
@@ -170,18 +169,10 @@ def run(
         run(source='data/videos/example.mp4', weights='yolov5s.pt', conf_thres=0.4, device='0')
         ```
     """
-    import csv as _csv
-
-    speed_profile = {}
-    csv_speed_path = speed  # CSV 檔案放在專案根目錄
-    try:
-        with open(csv_speed_path, "r") as f:
-            reader = _csv.DictReader(f)
-            for row in reader:
-                speed_profile[int(row["time_sec"])] = int(row["speed_kmh"])
-        print(f"✅ 車速時序檔案載入成功，共 {len(speed_profile)} 筆資料")
-    except FileNotFoundError:
-        print(f"⚠️  找不到 {csv_speed_path}，車速預設為 0（所有 ROI 關閉）")
+    import pytesseract
+    import re
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    print("✅ OCR 車速讀取模式啟用")
  
     source = str(source)
     # 自動讀取影片 FPS
@@ -231,6 +222,7 @@ def run(
     model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
     seen, windows, dt = 0, [], (Profile(device=device), Profile(device=device), Profile(device=device))
     danger_hold_frames = 0  # 警報維持計數器
+    current_speed = 0
     current_level = 0
     for path, im, im0s, vid_cap, s in dataset:
         with dt[0]:
@@ -300,8 +292,23 @@ def run(
             
             h, w, _ = im0.shape
 
-            current_time_sec = int(frame / fps)  # 30 FPS，幀數除以 FPS 取得秒數
-            current_speed = speed_profile.get(current_time_sec, 0)  # 查表，找不到預設 0
+            # OCR 讀取車速（每10幀讀一次，降低運算量）
+            if frame % 10 == 0:
+                try:
+                    # 搜尋畫面下方，不依賴固定座標
+                    search_region = im0[int(h * 0.8):h, 0:w]
+                    gray = cv2.cvtColor(search_region, cv2.COLOR_BGR2GRAY)
+                    gray = cv2.resize(gray, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
+                    _, binary = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+                    config = '--psm 6 --oem 3'
+                    ocr_text = pytesseract.image_to_string(binary, config=config)
+                    match = re.search(r'(\d+)\s*KM', ocr_text.upper())
+                    if match:
+                        speed_val = int(match.group(1))
+                        if 0 <= speed_val <= 120:
+                            current_speed = speed_val
+                except:
+                    pass
  
             # 依車速決定哪些深度層要啟用
             if current_speed == 0:
@@ -705,7 +712,6 @@ def parse_opt():
     parser.add_argument("--iou-thres", type=float, default=0.45, help="NMS IoU threshold")
     parser.add_argument("--max-det", type=int, default=1000, help="maximum detections per image")
     parser.add_argument("--device", default="", help="cuda device, i.e. 0 or 0,1,2,3 or cpu")
-    parser.add_argument("--speed", type=str, default="speed_profile.csv", help="車速時序CSV檔案路徑")
     parser.add_argument("--view-img", action="store_true", help="show results")
     parser.add_argument("--save-txt", action="store_true", help="save results to *.txt")
     parser.add_argument(
