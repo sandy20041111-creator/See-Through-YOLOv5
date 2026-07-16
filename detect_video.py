@@ -298,7 +298,7 @@ def run(
 
             # OCR 讀取車速（每10幀讀一次，降低運算量）
             print(f"frame: {frame}")
-            if frame % 10 == 0:
+            if int(frame) % 10 == 0:
                 try:
                     # 搜尋畫面下方，不依賴固定座標
                     search_region = im0[int(h * 0.8):h, 0:w]
