@@ -307,6 +307,7 @@ def run(
                     config = '--psm 6 --oem 3'
                     ocr_text = pytesseract.image_to_string(binary, config=config)
                     match = re.search(r'(\d+)\s*KM', ocr_text.upper())
+                    print(f"OCR: {repr(ocr_text.strip())} → {match.group(1) if match else '失敗'}")
                     if match:
                         speed_val = int(match.group(1))
                         if 0 <= speed_val <= 120:
