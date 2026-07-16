@@ -314,7 +314,8 @@ def run(
                         speed_val = int(match.group(1))
                         if 0 <= speed_val <= 120:
                             current_speed = speed_val
-                except:
+                except Exception as e:
+                    print(f"OCR 錯誤：{e}")
                     pass
  
             # 依車速決定哪些深度層要啟用
