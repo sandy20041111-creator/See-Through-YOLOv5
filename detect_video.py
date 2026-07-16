@@ -298,17 +298,17 @@ def run(
 
             # OCR 讀取車速（每10幀讀一次，降低運算量）
             print(f"frame: {frame}")
-            if True:
+            if int(frame) % 30 == 0:
                 print(f"OCR 觸發，frame: {frame}")
                 try:
                     # 搜尋畫面下方，不依賴固定座標
                     search_region = im0[int(h * 0.8):h, 0:w]
                     gray = cv2.cvtColor(search_region, cv2.COLOR_BGR2GRAY)
-                    gray = cv2.resize(gray, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
+                    gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
                     _, binary = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
                     config = '--psm 6 --oem 3'
                     ocr_text = pytesseract.image_to_string(binary, config=config)
-                    match = re.search(r'(\d+)\s*KM', ocr_text.upper())
+                    match = re.search(r'\b(\d{1,3})\s*KM/H', ocr_text.upper())
                     print(f"OCR: {repr(ocr_text.strip())} → {match.group(1) if match else '失敗'}")
                     if match:
                         speed_val = int(match.group(1))
