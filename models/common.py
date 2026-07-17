@@ -19,6 +19,16 @@ import pandas as pd
 import requests
 import torch
 import torch.nn as nn
+# SiLU 補丁（PyTorch 1.6 相容）
+class SiLU(nn.Module):
+    def forward(self, x):
+        return x * torch.sigmoid(x)
+
+import torch.nn.modules.activation
+if not hasattr(torch.nn.modules.activation, 'SiLU'):
+    torch.nn.modules.activation.SiLU = SiLU
+if not hasattr(nn, 'SiLU'):
+    nn.SiLU = SiLU
 from PIL import Image
 from torch.cuda import amp
 
