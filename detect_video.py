@@ -340,7 +340,7 @@ def run(
 
             # OCR 讀取車速（每10幀讀一次，降低運算量）
             print(f"frame: {frame}")
-            if int(frame) % 30 == 0 or frame == 1:
+            if int(frame) % 10 == 0 or frame == 1:
                 t = threading.Thread(target=ocr_worker, args=(im0.copy(), h, w))
                 t.daemon = True
                 t.start()
