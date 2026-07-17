@@ -267,6 +267,28 @@ def run(
     seen, windows, dt = 0, [], (Profile(device=device), Profile(device=device), Profile(device=device))
     danger_hold_frames = 0  # 警報維持計數器
     current_speed = 0
+    # 預先同步跑一次 OCR，避免開始時車速為 0
+    try:
+        import cv2 as _cv2_pre
+        _cap_pre = _cv2_pre.VideoCapture(source)
+        _ret, _frame_pre = _cap_pre.read()
+        _cap_pre.release()
+        if _ret:
+            _h, _w = _frame_pre.shape[:2]
+            _region = _frame_pre[int(_h * 0.75):_h, 0:_w]
+            _gray = cv2.cvtColor(_region, cv2.COLOR_BGR2GRAY)
+            _gray = cv2.resize(_gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+            _, _binary = cv2.threshold(_gray, 150, 255, cv2.THRESH_BINARY)
+            _text = pytesseract.image_to_string(_binary, config='--psm 12 --oem 3')
+            _match = re.search(r'(\d{1,3})\s*KM', _text.upper())
+            if _match:
+                speed_val = int(_match.group(1))
+                if 0 <= speed_val <= 120:
+                    current_speed = speed_val
+                    ocr_result["speed"] = speed_val
+                    print(f"✅ 初始車速: {current_speed} km/h")
+    except:
+        pass
     current_level = 0
     for path, im, im0s, vid_cap, s in dataset:
         with dt[0]:
