@@ -192,7 +192,7 @@ def run(
             gray = cv2.cvtColor(search_region, cv2.COLOR_BGR2GRAY)
             gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
             _, binary = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
-            config = '--psm 6 --oem 3'
+            config = '--psm 12 --oem 3'
             ocr_text = pytesseract.image_to_string(binary, config=config)
             match = re.search(r'(\d{1,3})\s*KM', ocr_text.upper())
             if match:
