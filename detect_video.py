@@ -287,8 +287,8 @@ def run(
                     current_speed = speed_val
                     ocr_result["speed"] = speed_val
                     print(f"✅ 初始車速: {current_speed} km/h")
-    except:
-        pass
+    except Exception as e:
+        print(f"預先OCR錯誤: {e}")
     current_level = 0
     for path, im, im0s, vid_cap, s in dataset:
         with dt[0]:
