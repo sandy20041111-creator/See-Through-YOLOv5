@@ -194,7 +194,7 @@ def run(
             _, binary = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
             config = '--psm 6 --oem 3'
             ocr_text = pytesseract.image_to_string(binary, config=config)
-            match = re.search(r'\b(\d{1,3})\s*KM/H', ocr_text.upper())
+            match = re.search(r'(\d{1,3})\s*KM', ocr_text.upper())
             if match:
                 speed_val = int(match.group(1))
                 if 0 <= speed_val <= 120:
