@@ -340,7 +340,7 @@ def run(
 
             # OCR 讀取車速（每10幀讀一次，降低運算量）
             print(f"frame: {frame}")
-            if int(frame) % 30 == 0:
+            if int(frame) % 30 == 0 or frame == 1:
                 t = threading.Thread(target=ocr_worker, args=(im0.copy(), h, w))
                 t.daemon = True
                 t.start()
@@ -639,7 +639,7 @@ def run(
             ) if any(v > 0 for v in vru_counter.values()) else ""
 
             print(f"UART: {uart_code}  |  Level: {current_level}  |  Speed: {current_speed} km/h{vru_summary}")
-          
+            print(f"推論時間: {dt[1].dt * 1E3:.1f}ms  |  FPS: {1/(dt[1].dt + 1e-9):.1f}")
 
             # HUD 疊合 overlay
             im0 = annotator.result()
