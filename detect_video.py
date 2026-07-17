@@ -206,8 +206,17 @@ def run(
 
     # Load model
     device = select_device(device)
-    model = DetectMultiBackend(weights, device=device, dnn=dnn, data=data, fp16=half)
-    stride, names, pt = model.stride, model.names, model.pt
+
+    if str(weights[0]).endswith('.pth'):
+        from torch2trt import TRTModule
+        model = TRTModule()
+        model.load_state_dict(torch.load(weights[0]))
+        model = model.cuda().half()
+        stride, names, pt = 32, [f'class{i}' for i in range(85)], False
+    else:
+        model = DetectMultiBackend(weights, device=device, dnn=dnn, data=data, fp16=half)
+        stride, names, pt = model.stride, model.names, model.pt
+    
     imgsz = check_img_size(imgsz, s=stride)  # check image size
 
     # Dataloader
