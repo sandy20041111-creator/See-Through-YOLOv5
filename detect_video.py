@@ -349,6 +349,8 @@ def run(
 
             with ocr_lock:
                 current_speed = ocr_result["speed"]
+                if current_speed > 0:
+                    print(f"車速更新: {current_speed} km/h")
  
             # 依車速決定哪些深度層要啟用
             if current_speed == 0:
