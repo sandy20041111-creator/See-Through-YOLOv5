@@ -30,6 +30,7 @@ Usage - formats:
 """
 
 import sys
+from xml.parsers.expat import model
 import torch
 import torch.nn as nn
 
@@ -265,7 +266,10 @@ def run(
                         pred = torch.cat((pred, model(image, augment=augment, visualize=visualize).unsqueeze(0)), dim=0)
                 pred = [pred, None]
             else:
-                pred = model(im, augment=augment, visualize=visualize)
+                if str(weights[0]).endswith('.pth'):
+                    pred = model(im)
+                else:
+                    pred = model(im, augment=augment, visualize=visualize)
         # NMS
         with dt[2]:
             pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
