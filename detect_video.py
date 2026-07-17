@@ -180,6 +180,29 @@ def run(
     print("✅ OCR 車速讀取模式啟用")
  
     source = str(source)
+
+    import threading
+
+    ocr_result = {"speed": 0}
+    ocr_lock = threading.Lock()
+
+    def ocr_worker(frame_img, h, w):
+        try:
+            search_region = frame_img[int(h * 0.75):h, 0:w]
+            gray = cv2.cvtColor(search_region, cv2.COLOR_BGR2GRAY)
+            gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+            _, binary = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+            config = '--psm 6 --oem 3'
+            ocr_text = pytesseract.image_to_string(binary, config=config)
+            match = re.search(r'\b(\d{1,3})\s*KM/H', ocr_text.upper())
+            if match:
+                speed_val = int(match.group(1))
+                if 0 <= speed_val <= 120:
+                    with ocr_lock:
+                        ocr_result["speed"] = speed_val
+        except:
+            pass
+
     # 自動讀取影片 FPS
     import cv2 as _cv2
     _cap = _cv2.VideoCapture(source)
@@ -318,21 +341,12 @@ def run(
             # OCR 讀取車速（每10幀讀一次，降低運算量）
             print(f"frame: {frame}")
             if int(frame) % 30 == 0:
-                try:
-                    # 搜尋畫面下方，不依賴固定座標
-                    search_region = im0[int(h * 0.8):h, 0:w]
-                    gray = cv2.cvtColor(search_region, cv2.COLOR_BGR2GRAY)
-                    gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-                    _, binary = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
-                    config = '--psm 6 --oem 3'
-                    ocr_text = pytesseract.image_to_string(binary, config=config)
-                    match = re.search(r'\b(\d{1,3})\s*KM/H', ocr_text.upper())
-                    if match:
-                        speed_val = int(match.group(1))
-                        if 0 <= speed_val <= 120:
-                            current_speed = speed_val
-                except:
-                    pass
+                t = threading.Thread(target=ocr_worker, args=(im0.copy(), h, w))
+                t.daemon = True
+                t.start()
+
+            with ocr_lock:
+                current_speed = ocr_result["speed"]
  
             # 依車速決定哪些深度層要啟用
             if current_speed == 0:
