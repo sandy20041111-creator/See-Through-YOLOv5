@@ -299,7 +299,6 @@ def run(
             # OCR 讀取車速（每10幀讀一次，降低運算量）
             print(f"frame: {frame}")
             if int(frame) % 30 == 0:
-                print(f"OCR 觸發，frame: {frame}")
                 try:
                     # 搜尋畫面下方，不依賴固定座標
                     search_region = im0[int(h * 0.8):h, 0:w]
@@ -309,13 +308,11 @@ def run(
                     config = '--psm 6 --oem 3'
                     ocr_text = pytesseract.image_to_string(binary, config=config)
                     match = re.search(r'\b(\d{1,3})\s*KM/H', ocr_text.upper())
-                    print(f"OCR: {repr(ocr_text.strip())} → {match.group(1) if match else '失敗'}")
                     if match:
                         speed_val = int(match.group(1))
                         if 0 <= speed_val <= 120:
                             current_speed = speed_val
-                except Exception as e:
-                    print(f"OCR 錯誤：{e}")
+                except:
                     pass
  
             # 依車速決定哪些深度層要啟用
