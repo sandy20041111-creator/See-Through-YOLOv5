@@ -213,6 +213,11 @@ def run(
         model.load_state_dict(torch.load(weights[0]))
         model = model.cuda().half()
         stride, names, pt = 32, [f'class{i}' for i in range(85)], False
+        # 設定 TRTModule 缺少的屬性
+        model.fp16 = True
+        model.xml = False
+        model.triton = False
+        model.device = device
     else:
         model = DetectMultiBackend(weights, device=device, dnn=dnn, data=data, fp16=half)
         stride, names, pt = model.stride, model.names, model.pt
