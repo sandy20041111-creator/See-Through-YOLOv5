@@ -200,7 +200,8 @@ def run(
                 if 0 <= speed_val <= 120:
                     with ocr_lock:
                         ocr_result["speed"] = speed_val
-        except:
+        except Exception as e:
+            print(f"OCR錯誤: {e}")
             pass
 
     # 自動讀取影片 FPS
@@ -340,10 +341,11 @@ def run(
 
             # OCR 讀取車速（每10幀讀一次，降低運算量）
             print(f"frame: {frame}")
-            if int(frame) % 10 == 0 or frame == 1:
-                t = threading.Thread(target=ocr_worker, args=(im0.copy(), h, w))
-                t.daemon = True
-                t.start()
+            if (int(frame) % 10 == 0 or frame == 1):
+                if not hasattr(run, 'ocr_thread') or not run.ocr_thread.is_alive():
+                    run.ocr_thread = threading.Thread(target=ocr_worker, args=(im0.copy(), h, w))
+                    run.ocr_thread.daemon = True
+                    run.ocr_thread.start()
 
             with ocr_lock:
                 current_speed = ocr_result["speed"]
