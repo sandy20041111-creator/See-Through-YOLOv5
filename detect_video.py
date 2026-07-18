@@ -181,29 +181,6 @@ def run(
  
     source = str(source)
 
-    import threading
-
-    ocr_result = {"speed": 0}
-    ocr_lock = threading.Lock()
-
-    def ocr_worker(frame_img, h, w):
-        try:
-            search_region = frame_img[int(h * 0.75):h, 0:w]
-            gray = cv2.cvtColor(search_region, cv2.COLOR_BGR2GRAY)
-            gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-            _, binary = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
-            config = '--psm 12 --oem 3'
-            ocr_text = pytesseract.image_to_string(binary, config=config)
-            match = re.search(r'(\d{1,3})\s*KM', ocr_text.upper())
-            if match:
-                speed_val = int(match.group(1))
-                if 0 <= speed_val <= 120:
-                    with ocr_lock:
-                        ocr_result["speed"] = speed_val
-        except Exception as e:
-            print(f"OCR錯誤: {e}")
-            pass
-
     # 自動讀取影片 FPS
     import cv2 as _cv2
     _cap = _cv2.VideoCapture(source)
@@ -267,32 +244,28 @@ def run(
     seen, windows, dt = 0, [], (Profile(device=device), Profile(device=device), Profile(device=device))
     danger_hold_frames = 0  # 警報維持計數器
     current_speed = 0
-    # 預先同步跑一次 OCR，避免開始時車速為 0
     try:
         import cv2 as _cv2_pre
-        print(f"預先OCR source: {source}")
         _cap_pre = _cv2_pre.VideoCapture(source)
-        print(f"預先OCR _ret: {_ret}")
+        _ret, _frame_pre = _cap_pre.read()
         _cap_pre.release()
         if _ret:
             _h, _w = _frame_pre.shape[:2]
-            print(f"幀尺寸: {_h}x{_w}")  # ← 加這行
             _region = _frame_pre[int(_h * 0.75):_h, 0:_w]
             _gray = cv2.cvtColor(_region, cv2.COLOR_BGR2GRAY)
             _gray = cv2.resize(_gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
             _, _binary = cv2.threshold(_gray, 150, 255, cv2.THRESH_BINARY)
             _text = pytesseract.image_to_string(_binary, config='--psm 12 --oem 3')
-            print(f"預先OCR文字: {repr(_text.strip()[:80])}")
             _match = re.search(r'(\d{1,3})\s*KM', _text.upper())
             if _match:
                 speed_val = int(_match.group(1))
                 if 0 <= speed_val <= 120:
                     current_speed = speed_val
-                    ocr_result["speed"] = speed_val
                     print(f"✅ 初始車速: {current_speed} km/h")
     except Exception as e:
         print(f"預先OCR錯誤: {e}")
     current_level = 0
+    
     for path, im, im0s, vid_cap, s in dataset:
         with dt[0]:
             im = torch.from_numpy(im).to(device)
@@ -366,16 +339,20 @@ def run(
 
             # OCR 讀取車速（每10幀讀一次，降低運算量）
             print(f"frame: {frame}")
-            if (int(frame) % 5 == 0 or frame == 1):
-                if not hasattr(run, 'ocr_thread') or not run.ocr_thread.is_alive():
-                    run.ocr_thread = threading.Thread(target=ocr_worker, args=(im0.copy(), h, w))
-                    run.ocr_thread.daemon = True
-                    run.ocr_thread.start()
-
-            with ocr_lock:
-                current_speed = ocr_result["speed"]
-                if current_speed > 0:
-                    print(f"車速更新: {current_speed} km/h")
+            if int(frame) % 5 == 0 or frame == 1:
+                try:
+                    search_region = im0[int(h * 0.75):h, 0:w]
+                    gray_ocr = cv2.cvtColor(search_region, cv2.COLOR_BGR2GRAY)
+                    gray_ocr = cv2.resize(gray_ocr, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+                    _, binary_ocr = cv2.threshold(gray_ocr, 150, 255, cv2.THRESH_BINARY)
+                    ocr_text = pytesseract.image_to_string(binary_ocr, config='--psm 12 --oem 3')
+                    match = re.search(r'(\d{1,3})\s*KM', ocr_text.upper())
+                    if match:
+                        speed_val = int(match.group(1))
+                        if 0 <= speed_val <= 120:
+                            current_speed = speed_val
+                except Exception as e:
+                    pass
  
             # 依車速決定哪些深度層要啟用
             if current_speed == 0:
