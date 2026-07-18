@@ -342,7 +342,7 @@ def run(
 
             # OCR 讀取車速（每10幀讀一次，降低運算量）
             print(f"frame: {frame}")
-            if int(frame) % 5 == 0 or frame == 1:
+            if int(frame) % 10 == 0 or frame == 1:
                 try:
                     search_region = im0[int(h * 0.75):h, 0:w]
                     gray_ocr = cv2.cvtColor(search_region, cv2.COLOR_BGR2GRAY)
