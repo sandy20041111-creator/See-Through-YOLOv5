@@ -654,10 +654,13 @@ def run(
             im0 = annotator.result()
             cv2.addWeighted(overlay, 0.25, im0, 0.75, 0, im0)
 
+            # 黑底背景框
+            cv2.rectangle(im0, (10, 10), (220, 70), (0, 0, 0), -1)
+
             # 畫面左上角：圓形燈號
             led_center = (40, 40)
-            cv2.circle(im0, led_center, 22, led_color, -1)           # 實心圓
-            cv2.circle(im0, led_center, 22, (255, 255, 255), 2)      # 白色外框
+            cv2.circle(im0, led_center, 22, led_color, -1)
+            cv2.circle(im0, led_center, 22, (255, 255, 255), 2)
 
             # 畫面左上角：車速文字（燈號右側）
             cv2.putText(im0, f"{current_speed} km/h",
