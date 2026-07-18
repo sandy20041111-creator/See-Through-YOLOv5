@@ -277,6 +277,7 @@ def run(
         _cap_pre.release()
         if _ret:
             _h, _w = _frame_pre.shape[:2]
+            print(f"幀尺寸: {_h}x{_w}")  # ← 加這行
             _region = _frame_pre[int(_h * 0.75):_h, 0:_w]
             _gray = cv2.cvtColor(_region, cv2.COLOR_BGR2GRAY)
             _gray = cv2.resize(_gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
