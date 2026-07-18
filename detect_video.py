@@ -222,6 +222,7 @@ def run(
         model.xml = False
         model.triton = False
         model.device = device
+        model.names = names
     else:
         model = DetectMultiBackend(weights, device=device, dnn=dnn, data=data, fp16=half)
         stride, names, pt = model.stride, model.names, model.pt
