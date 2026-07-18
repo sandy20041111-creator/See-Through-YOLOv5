@@ -272,8 +272,6 @@ def run(
         import cv2 as _cv2_pre
         print(f"預先OCR source: {source}")
         _cap_pre = _cv2_pre.VideoCapture(source)
-        _cap_pre.set(cv2.CAP_PROP_POS_FRAMES, 30)  # ← 加這行，跳到第30幀
-        _ret, _frame_pre = _cap_pre.read()
         print(f"預先OCR _ret: {_ret}")
         _cap_pre.release()
         if _ret:
