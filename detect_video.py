@@ -282,6 +282,7 @@ def run(
             _gray = cv2.resize(_gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
             _, _binary = cv2.threshold(_gray, 150, 255, cv2.THRESH_BINARY)
             _text = pytesseract.image_to_string(_binary, config='--psm 12 --oem 3')
+            print(f"預先OCR文字: {repr(_text.strip()[:80])}")
             _match = re.search(r'(\d{1,3})\s*KM', _text.upper())
             if _match:
                 speed_val = int(_match.group(1))
