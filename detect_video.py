@@ -270,8 +270,10 @@ def run(
     # 預先同步跑一次 OCR，避免開始時車速為 0
     try:
         import cv2 as _cv2_pre
+        print(f"預先OCR source: {source}")
         _cap_pre = _cv2_pre.VideoCapture(source)
         _ret, _frame_pre = _cap_pre.read()
+        print(f"預先OCR _ret: {_ret}")
         _cap_pre.release()
         if _ret:
             _h, _w = _frame_pre.shape[:2]
