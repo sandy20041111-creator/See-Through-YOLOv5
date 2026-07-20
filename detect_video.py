@@ -587,30 +587,48 @@ def run(
                             if depth not in active_depths:
                                 continue
                             if cv2.pointPolygonTest(zone_pts, (bottom_center_x, bottom_center_y), False) >= 0:
-                                if pos == "center" and depth == "near":
-                                    detected_level = 3
-                                elif pos == "center" and depth == "mid" and current_speed >= 51:
-                                    detected_level = 3
-                                elif pos == "left" or pos == "right":
-                                    if depth == "near" and current_speed >= 51:
-                                        detected_level = 3
-                                    elif depth == "near" and current_speed <= 50:
-                                        detected_level = 2
-                                    elif depth == "mid":
-                                        detected_level = 2
-                                    elif depth == "far":
-                                        detected_level = 1
-                                    else:
-                                        detected_level = 1
-                                elif pos == "center" and depth == "mid":
-                                    detected_level = 2
-                                elif pos == "center" and depth == "far":
+                                # 計算車速分數
+                                if current_speed == 0:
+                                    speed_score = 0
+                                elif 1 <= current_speed <= 30:
+                                    speed_score = 0
+                                elif 31 <= current_speed <= 50:
+                                    speed_score = 1
+                                else:
+                                    speed_score = 2
+
+                                # 計算橫向ROI分數
+                                if pos == "center":
+                                    pos_score = 3
+                                else:  # left 或 right
+                                    pos_score = 1
+
+                                # 計算縱向ROI分數
+                                if depth == "far":
+                                    depth_score = 0
+                                elif depth == "mid":
+                                    depth_score = 2
+                                else:  # near
+                                    depth_score = 4
+
+                                # 加總風險分數
+                                total_score = speed_score + pos_score + depth_score
+
+                                # 對應警示等級
+                                if total_score <= 0:
+                                    detected_level = 0
+                                elif total_score <= 3:
+                                    detected_level = 1
+                                elif total_score <= 6:
                                     detected_level = 2
                                 else:
-                                    detected_level = 1
+                                    detected_level = 3
+
+                                # 保留最高等級
                                 if detected_level > danger_level_now:
                                     danger_level_now = detected_level
-                                vru_counter[final_class_name] += 1 
+
+                        vru_counter[final_class_name] += 1 
 
             # 防抖結算：保留最高等級
             if danger_level_now > 0:
@@ -623,22 +641,21 @@ def run(
                 else:
                     current_level = 0
 
-            # 依等級決定燈號顏色與 UART 編碼
-            if current_speed == 0:
-                led_color = (0, 255, 0)       # 綠色：靜止
-                uart_code = "AA 00"
-            elif current_level == 0:
-                led_color = (0, 255, 0)       # 綠色：無危險
-                uart_code = "AA 10"
+            # 依等級決定燈號顏色與 UART 編碼（4 bits：T1T0 L1L0）
+            # T1T0：00=安全，01=弱勢用路人，10=前前車煞車，11=系統錯誤
+            # L1L0：00=無等級，01=Level1，10=Level2，11=Level3
+            if current_level == 0:
+                led_color = (0, 255, 0)    # 綠色
+                uart_code = "0000"          # 安全，無等級
             elif current_level == 1:
-                led_color = (0, 255, 255)     # 黃色 (BGR)
-                uart_code = "AA 11"
+                led_color = (0, 255, 255)  # 黃色
+                uart_code = "0101"          # 弱勢用路人，Level1
             elif current_level == 2:
-                led_color = (0, 140, 255)     # 橘色 (BGR)
-                uart_code = "AA 12"
+                led_color = (0, 140, 255)  # 橘色
+                uart_code = "0110"          # 弱勢用路人，Level2
             else:
-                led_color = (0, 0, 255)       # 紅色 (BGR)
-                uart_code = "AA 13"
+                led_color = (0, 0, 255)    # 紅色
+                uart_code = "0111"          # 弱勢用路人，Level3
 
             # 終端機印出 UART 編碼
             # 整理 VRU 統計字串
