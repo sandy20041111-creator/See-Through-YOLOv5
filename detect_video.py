@@ -268,8 +268,6 @@ def run(
     except Exception as e:
         print(f"預先OCR錯誤: {e}")
     current_level = 0
-    import csv
-    perf_log = []
     
     for path, im, im0s, vid_cap, s in dataset:
         with dt[0]:
@@ -667,16 +665,7 @@ def run(
             ) if any(v > 0 for v in vru_counter.values()) else ""
 
             print(f"UART: {uart_code}  |  Level: {current_level}  |  Speed: {current_speed} km/h{vru_summary}")
-            inference_ms = dt[1].dt * 1E3
-            fps_val = 1 / (dt[1].dt + 1e-9)
-            print(f"推論時間: {inference_ms:.1f}ms  |  FPS: {fps_val:.1f}")
-            perf_log.append({
-                "frame": frame,
-                "inference_ms": round(inference_ms, 1),
-                "fps": round(fps_val, 1),
-                "level": current_level,
-                "speed_kmh": current_speed,
-            })
+            print(f"推論時間: {dt[1].dt * 1E3:.1f}ms  |  FPS: {1/(dt[1].dt + 1e-9):.1f}")
 
             # HUD 疊合 overlay
             im0 = annotator.result()
@@ -726,15 +715,6 @@ def run(
 
         # Print time (inference-only)
         #LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1e3:.1f}ms")
-
-    # 跑完之後把效能記錄存成 CSV
-    if perf_log:
-        csv_path = "performance_log.csv"
-        with open(csv_path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=["frame", "inference_ms", "fps", "level", "speed_kmh"])
-            writer.writeheader()
-            writer.writerows(perf_log)
-        print(f"✅ 效能記錄已存到 {csv_path}")
     
     # Print results
     t = tuple(x.t / seen * 1e3 for x in dt)  # speeds per image
