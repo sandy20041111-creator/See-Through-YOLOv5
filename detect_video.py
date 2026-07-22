@@ -2480,6 +2480,8 @@ def run(
         run(source='data/videos/example.mp4', weights='yolov5s.pt', conf_thres=0.4, device='0')
         ```
     """
+    import os
+    import pathlib
     import pytesseract
     import re
     import os
@@ -5245,13 +5247,33 @@ def run(
                     interpolation=cv2.INTER_AREA,
                 )
 
+                window_name = "YOLO Detection"
+
+                # 視窗只建立一次
+                if window_name not in windows:
+                    windows.append(window_name)
+
+                    cv2.namedWindow(
+                        window_name,
+                        cv2.WINDOW_NORMAL,
+                    )
+
+                    cv2.resizeWindow(
+                        window_name,
+                        1280,
+                        720,
+                    )
+
                 cv2.imshow(
-                    str(p),
+                    window_name,
                     display_frame,
                 )
 
-                cv2.waitKey(1)
+                # 給 Nano 足夠時間更新 OpenCV 視窗
+                key = cv2.waitKey(30) & 0xFF
 
+                if key == ord("q"):
+                    break
             # Save results (image with detections)
             if save_img:
                 if dataset.mode == "image":
@@ -5275,7 +5297,9 @@ def run(
 
         # Print time (inference-only)
         #LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1e3:.1f}ms")
-        # =========================================================
+    if view_img:
+    cv2.destroyAllWindows()
+    # =========================================================
     # 影片處理結束，關閉 UART
     # =========================================================
 
