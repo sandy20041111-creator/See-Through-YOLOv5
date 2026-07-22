@@ -53,6 +53,8 @@ import csv
 import os
 import platform
 import sys
+import serial
+import time
 from glob import glob, has_magic
 from pathlib import Path
 
@@ -88,6 +90,14 @@ from utils.general import (
 )
 from utils.torch_utils import select_device, smart_inference_mode
 
+# =========================================================
+# Nano -> STM32 UART
+# =========================================================
+UART_PORT = "/dev/ttyUSB0"
+UART_BAUD_RATE = 115200
+
+# 狀態沒有改變時，每隔0.5秒重送
+UART_RESEND_INTERVAL_SECONDS = 0.5
 
 @smart_inference_mode()
 def run(
@@ -268,7 +278,37 @@ def run(
     except Exception as e:
         print(f"預先OCR錯誤: {e}")
     current_level = 0
-    
+    # =========================================================
+    # 開啟 Nano -> STM32 UART
+    # =========================================================
+    stm32_uart = None
+    last_uart_packet = None
+    last_uart_send_time = 0.0
+
+    try:
+        stm32_uart = serial.Serial(
+            port=UART_PORT,
+            baudrate=UART_BAUD_RATE,
+            timeout=0.1,
+            write_timeout=0.1,
+        )
+
+        print(
+            f"✅ STM32 UART 已連線："
+            f"{UART_PORT}, {UART_BAUD_RATE} baud"
+        )
+
+    except serial.SerialException as uart_error:
+        print(
+            f"⚠️ STM32 UART 開啟失敗："
+            f"{uart_error}"
+        )
+        print(
+            "⚠️ 影像辨識會繼續執行，"
+            "但不會傳送 UART"
+        )
+
+        stm32_uart = None
     for path, im, im0s, vid_cap, s in dataset:
         with dt[0]:
             im = torch.from_numpy(im).to(device)
@@ -657,6 +697,68 @@ def run(
                 led_color = (0, 0, 255)    # 紅色
                 uart_code = "0111"          # 弱勢用路人，Level3
 
+            # 將4-bit字串轉成0～15的數值
+            uart_value = int(
+                uart_code,
+                2,
+            )
+
+            # 不含AA，只傳一個Byte
+            # 有效事件資料放在低四位
+            uart_packet = bytes([
+                uart_value & 0b1111
+            ])
+
+            current_uart_time = (
+                time.monotonic()
+            )
+
+            # 事件改變時立即傳送
+            # 未改變時每0.5秒重送
+            should_send_uart = (
+                uart_packet
+                != last_uart_packet
+                or
+                current_uart_time
+                - last_uart_send_time
+                >= UART_RESEND_INTERVAL_SECONDS
+            )
+
+            if (
+                stm32_uart is not None
+                and should_send_uart
+            ):
+                try:
+                    stm32_uart.write(
+                        uart_packet
+                    )
+                    stm32_uart.flush()
+
+                    last_uart_packet = (
+                        uart_packet
+                    )
+                    last_uart_send_time = (
+                        current_uart_time
+                    )
+
+                    print(
+                        f"📤 Nano -> STM32："
+                        f"{uart_code}"
+                    )
+
+                except serial.SerialException as uart_error:
+                    print(
+                        f"⚠️ UART 傳送失敗："
+                        f"{uart_error}"
+                    )
+
+                    try:
+                        stm32_uart.close()
+                    except Exception:
+                        pass
+
+                    stm32_uart = None
+
             # 終端機印出 UART 編碼
             # 整理 VRU 統計字串
             vru_summary = " | " + " ".join(
@@ -715,7 +817,22 @@ def run(
 
         # Print time (inference-only)
         #LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1e3:.1f}ms")
-    
+    # =========================================================
+    # 影片處理結束，關閉 UART
+    # =========================================================
+    if stm32_uart is not None:
+        try:
+            stm32_uart.close()
+
+            print(
+                "✅ STM32 UART 已關閉"
+            )
+
+        except serial.SerialException as uart_error:
+            print(
+                f"⚠️ UART 關閉失敗："
+                f"{uart_error}"
+            )
     # Print results
     t = tuple(x.t / seen * 1e3 for x in dt)  # speeds per image
     LOGGER.info(f"Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {(1, 3, *imgsz)}" % t)
