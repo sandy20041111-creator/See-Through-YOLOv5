@@ -2482,11 +2482,23 @@ def run(
     """
     import pytesseract
     import re
-    if platform.system() == "Windows":
-    pytesseract.pytesseract.tesseract_cmd = (
-        r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    import os
+
+    if os.path.exists(
+        r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    ):
+        pytesseract.pytesseract.tesseract_cmd = (
+            r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+        )
+    else:
+        pytesseract.pytesseract.tesseract_cmd = (
+            r'/usr/bin/tesseract'
+        )
+
+    print(
+        "✅ OCR 車速讀取模式啟用："
+        f"{pytesseract.pytesseract.tesseract_cmd}"
     )
-    print("✅ OCR 車速讀取模式啟用")
  
     source = str(source)
     # =========================================================
