@@ -1,6 +1,7 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 """Experimental modules."""
-
+import os
+import pathlib
 import math
 
 import numpy as np
@@ -9,10 +10,37 @@ import torch.nn as nn
 #from ultralytics.utils.patches import torch_load
 from utils.downloads import attempt_download
 def torch_load(fp, map_location=None):
+    """
+    載入由Windows或Linux儲存的PyTorch權重，
+    並相容Nano使用的舊版PyTorch 1.6。
+    """
+    original_windows_path = pathlib.WindowsPath
+
+    # Linux無法直接建立WindowsPath
+    # 載入權重期間暫時轉換成PosixPath
+    if os.name != "nt":
+        pathlib.WindowsPath = pathlib.PosixPath
+
     try:
-        return torch.load(fp, map_location=map_location, weights_only=False)
-    except TypeError:
-        return torch.load(fp, map_location=map_location)
+        try:
+            # 新版PyTorch明確關閉weights_only
+            return torch.load(
+                fp,
+                map_location=map_location,
+                weights_only=False,
+            )
+
+        except TypeError:
+            # Nano的PyTorch 1.6沒有weights_only參數
+            return torch.load(
+                fp,
+                map_location=map_location,
+            )
+
+    finally:
+        # 載入完畢後恢復pathlib原始設定
+        if os.name != "nt":
+            pathlib.WindowsPath = original_windows_path
 
 
 
