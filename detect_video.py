@@ -61,7 +61,10 @@ from pathlib import Path
 import torch
 import numpy as np
 import cv2
-
+try:
+    import Jetson.GPIO as GPIO
+except ImportError:
+    GPIO = None
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
 if str(ROOT) not in sys.path:
@@ -95,7 +98,12 @@ from utils.torch_utils import select_device, smart_inference_mode
 # =========================================================
 UART_PORT = "/dev/ttyUSB0"
 UART_BAUD_RATE = 115200
+# Nano實體排針Pin12
+NANO_MEASURE_PIN = 12
 
+# True：延遲測試時，只在事件改變時傳送
+# False：維持原本每0.5秒重送
+LATENCY_TEST_MODE = True
 # 狀態沒有改變時，每隔0.5秒重送
 UART_RESEND_INTERVAL_SECONDS = 0.5
 
@@ -254,6 +262,24 @@ def run(
     # Run inference
     if not str(weights[0]).endswith('.pth'):
         model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
+    # =========================================================
+    # Nano Pin12：單幀運算時間標記
+    # 模型載入與Warm-up已經完成，不列入量測
+    # =========================================================
+    if GPIO is None:
+        raise RuntimeError(
+            "找不到 Jetson.GPIO，請確認目前是在 Jetson Nano 上執行"
+        )
+
+    GPIO.setwarnings(False)
+    GPIO.setmode(GPIO.BOARD)
+    GPIO.setup(
+        NANO_MEASURE_PIN,
+        GPIO.OUT,
+        initial=GPIO.LOW,
+    )
+
+    print("✅ Nano Pin12 延遲量測訊號已啟用")
     seen, windows, dt = 0, [], (Profile(device=device), Profile(device=device), Profile(device=device))
     danger_hold_frames = 0  # 警報維持計數器
     current_speed = 0
@@ -310,6 +336,17 @@ def run(
 
         stm32_uart = None
     for path, im, im0s, vid_cap, s in dataset:
+
+        # 清除上一幀尚未完成的GPU工作，建立明確量測起點
+        if device.type != "cpu":
+            torch.cuda.synchronize()
+
+        # 目前這一幀開始處理
+        GPIO.output(
+            NANO_MEASURE_PIN,
+            GPIO.HIGH,
+        )
+
         with dt[0]:
             im = torch.from_numpy(im).to(device)
             im = im.half() if (model.fp16 if hasattr(model, 'fp16') else half) else im.float()
@@ -708,21 +745,38 @@ def run(
             uart_packet = bytes([
                 uart_value & 0b1111
             ])
+            # 確認目前這一幀的GPU工作全部完成
+            if device.type != "cpu":
+                torch.cuda.synchronize()
+
+            # 最終事件已完成，停止Nano單幀計時
+            GPIO.output(
+                NANO_MEASURE_PIN,
+                GPIO.LOW,
+            )
 
             current_uart_time = (
                 time.monotonic()
             )
 
-            # 事件改變時立即傳送
-            # 未改變時每0.5秒重送
-            should_send_uart = (
-                uart_packet
-                != last_uart_packet
-                or
+            event_changed = (
+                uart_packet != last_uart_packet
+            )
+
+            resend_due = (
                 current_uart_time
                 - last_uart_send_time
                 >= UART_RESEND_INTERVAL_SECONDS
             )
+
+            if LATENCY_TEST_MODE:
+                # 延遲測試：只有事件改變時才傳一次
+                should_send_uart = event_changed
+            else:
+                # 正常模式：事件改變立即傳，否則每0.5秒重送
+                should_send_uart = (
+                    event_changed or resend_due
+                )
 
             if (
                 stm32_uart is not None
@@ -833,6 +887,21 @@ def run(
                 f"⚠️ UART 關閉失敗："
                 f"{uart_error}"
             )
+    # =========================================================
+    # 關閉Nano計時GPIO
+    # =========================================================
+    try:
+        GPIO.output(
+            NANO_MEASURE_PIN,
+            GPIO.LOW,
+        )
+        GPIO.cleanup(
+            NANO_MEASURE_PIN
+        )
+        print("✅ Nano Pin12 延遲量測訊號已關閉")
+
+    except Exception as gpio_error:
+        print(f"⚠️ Nano GPIO關閉失敗：{gpio_error}")
     # Print results
     t = tuple(x.t / seen * 1e3 for x in dt)  # speeds per image
     LOGGER.info(f"Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {(1, 3, *imgsz)}" % t)
