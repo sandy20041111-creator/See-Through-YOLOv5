@@ -2806,6 +2806,16 @@ def run(
     # 保存原始距離與平滑距離
     lead_distance_history = deque()
     for path, im, im0s, vid_cap, s in dataset:
+
+        # Nano 解碼器可能在影片結尾多回傳一次最後畫面
+        # 以 road mask 數量作為實際有效幀數
+        if road_mask_frame_index >= len(mask_files):
+            print(
+                f"✅ 有效影片處理完成："
+                f"{len(mask_files)} 幀"
+            )
+            break
+
         with dt[0]:
             im = torch.from_numpy(im).to(model.device)
             im = im.half() if model.fp16 else im.float()  # uint8 to fp16/32
@@ -5298,7 +5308,7 @@ def run(
         # Print time (inference-only)
         #LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1e3:.1f}ms")
     if view_img:
-    cv2.destroyAllWindows()
+        cv2.destroyAllWindows()
     # =========================================================
     # 影片處理結束，關閉 UART
     # =========================================================
