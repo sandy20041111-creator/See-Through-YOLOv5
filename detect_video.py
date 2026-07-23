@@ -53,13 +53,18 @@ import csv
 import os
 import platform
 import sys
+import serial
+import time
 from glob import glob, has_magic
 from pathlib import Path
 
 import torch
 import numpy as np
 import cv2
-
+try:
+    import Jetson.GPIO as GPIO
+except ImportError:
+    GPIO = None
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
 if str(ROOT) not in sys.path:
@@ -88,6 +93,19 @@ from utils.general import (
 )
 from utils.torch_utils import select_device, smart_inference_mode
 
+# =========================================================
+# Nano -> STM32 UART
+# =========================================================
+UART_PORT = "/dev/ttyUSB0"
+UART_BAUD_RATE = 115200
+# Nano實體排針Pin12
+NANO_MEASURE_PIN = 12
+
+# True：延遲測試時，只在事件改變時傳送
+# False：維持原本每0.5秒重送
+LATENCY_TEST_MODE = True
+# 狀態沒有改變時，每隔0.5秒重送
+UART_RESEND_INTERVAL_SECONDS = 0.5
 
 @smart_inference_mode()
 def run(
@@ -244,6 +262,24 @@ def run(
     # Run inference
     if not str(weights[0]).endswith('.pth'):
         model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
+    # =========================================================
+    # Nano Pin12：單幀運算時間標記
+    # 模型載入與Warm-up已經完成，不列入量測
+    # =========================================================
+    if GPIO is None:
+        raise RuntimeError(
+            "找不到 Jetson.GPIO，請確認目前是在 Jetson Nano 上執行"
+        )
+
+    GPIO.setwarnings(False)
+    GPIO.setmode(GPIO.BOARD)
+    GPIO.setup(
+        NANO_MEASURE_PIN,
+        GPIO.OUT,
+        initial=GPIO.LOW,
+    )
+
+    print("✅ Nano Pin12 延遲量測訊號已啟用")
     seen, windows, dt = 0, [], (Profile(device=device), Profile(device=device), Profile(device=device))
     danger_hold_frames = 0  # 警報維持計數器
     current_speed = 0
@@ -268,8 +304,49 @@ def run(
     except Exception as e:
         print(f"預先OCR錯誤: {e}")
     current_level = 0
-    
+    # =========================================================
+    # 開啟 Nano -> STM32 UART
+    # =========================================================
+    stm32_uart = None
+    last_uart_packet = None
+    last_uart_send_time = 0.0
+
+    try:
+        stm32_uart = serial.Serial(
+            port=UART_PORT,
+            baudrate=UART_BAUD_RATE,
+            timeout=0.1,
+            write_timeout=0.1,
+        )
+
+        print(
+            f"✅ STM32 UART 已連線："
+            f"{UART_PORT}, {UART_BAUD_RATE} baud"
+        )
+
+    except serial.SerialException as uart_error:
+        print(
+            f"⚠️ STM32 UART 開啟失敗："
+            f"{uart_error}"
+        )
+        print(
+            "⚠️ 影像辨識會繼續執行，"
+            "但不會傳送 UART"
+        )
+
+        stm32_uart = None
     for path, im, im0s, vid_cap, s in dataset:
+
+        # 清除上一幀尚未完成的GPU工作，建立明確量測起點
+        if device.type != "cpu":
+            torch.cuda.synchronize()
+
+        # 目前這一幀開始處理
+        GPIO.output(
+            NANO_MEASURE_PIN,
+            GPIO.HIGH,
+        )
+
         with dt[0]:
             im = torch.from_numpy(im).to(device)
             im = im.half() if (model.fp16 if hasattr(model, 'fp16') else half) else im.float()
@@ -587,30 +664,48 @@ def run(
                             if depth not in active_depths:
                                 continue
                             if cv2.pointPolygonTest(zone_pts, (bottom_center_x, bottom_center_y), False) >= 0:
-                                if pos == "center" and depth == "near":
-                                    detected_level = 3
-                                elif pos == "center" and depth == "mid" and current_speed >= 51:
-                                    detected_level = 3
-                                elif pos == "left" or pos == "right":
-                                    if depth == "near" and current_speed >= 51:
-                                        detected_level = 3
-                                    elif depth == "near" and current_speed <= 50:
-                                        detected_level = 2
-                                    elif depth == "mid":
-                                        detected_level = 2
-                                    elif depth == "far":
-                                        detected_level = 1
-                                    else:
-                                        detected_level = 1
-                                elif pos == "center" and depth == "mid":
-                                    detected_level = 2
-                                elif pos == "center" and depth == "far":
+                                # 計算車速分數
+                                if current_speed == 0:
+                                    speed_score = 0
+                                elif 1 <= current_speed <= 30:
+                                    speed_score = 0
+                                elif 31 <= current_speed <= 50:
+                                    speed_score = 1
+                                else:
+                                    speed_score = 2
+
+                                # 計算橫向ROI分數
+                                if pos == "center":
+                                    pos_score = 3
+                                else:  # left 或 right
+                                    pos_score = 1
+
+                                # 計算縱向ROI分數
+                                if depth == "far":
+                                    depth_score = 0
+                                elif depth == "mid":
+                                    depth_score = 2
+                                else:  # near
+                                    depth_score = 4
+
+                                # 加總風險分數
+                                total_score = speed_score + pos_score + depth_score
+
+                                # 對應警示等級
+                                if total_score <= 0:
+                                    detected_level = 0
+                                elif total_score <= 3:
+                                    detected_level = 1
+                                elif total_score <= 6:
                                     detected_level = 2
                                 else:
-                                    detected_level = 1
+                                    detected_level = 3
+
+                                # 保留最高等級
                                 if detected_level > danger_level_now:
                                     danger_level_now = detected_level
-                                vru_counter[final_class_name] += 1 
+
+                        vru_counter[final_class_name] += 1 
 
             # 防抖結算：保留最高等級
             if danger_level_now > 0:
@@ -623,22 +718,100 @@ def run(
                 else:
                     current_level = 0
 
-            # 依等級決定燈號顏色與 UART 編碼
-            if current_speed == 0:
-                led_color = (0, 255, 0)       # 綠色：靜止
-                uart_code = "AA 00"
-            elif current_level == 0:
-                led_color = (0, 255, 0)       # 綠色：無危險
-                uart_code = "AA 10"
+            # 依等級決定燈號顏色與 UART 編碼（4 bits：T1T0 L1L0）
+            # T1T0：00=安全，01=弱勢用路人，10=前前車煞車，11=系統錯誤
+            # L1L0：00=無等級，01=Level1，10=Level2，11=Level3
+            if current_level == 0:
+                led_color = (0, 255, 0)    # 綠色
+                uart_code = "0000"          # 安全，無等級
             elif current_level == 1:
-                led_color = (0, 255, 255)     # 黃色 (BGR)
-                uart_code = "AA 11"
+                led_color = (0, 255, 255)  # 黃色
+                uart_code = "0101"          # 弱勢用路人，Level1
             elif current_level == 2:
-                led_color = (0, 140, 255)     # 橘色 (BGR)
-                uart_code = "AA 12"
+                led_color = (0, 140, 255)  # 橘色
+                uart_code = "0110"          # 弱勢用路人，Level2
             else:
-                led_color = (0, 0, 255)       # 紅色 (BGR)
-                uart_code = "AA 13"
+                led_color = (0, 0, 255)    # 紅色
+                uart_code = "0111"          # 弱勢用路人，Level3
+
+            # 將4-bit字串轉成0～15的數值
+            uart_value = int(
+                uart_code,
+                2,
+            )
+
+            # 不含AA，只傳一個Byte
+            # 有效事件資料放在低四位
+            uart_packet = bytes([
+                uart_value & 0b1111
+            ])
+            # 確認目前這一幀的GPU工作全部完成
+            if device.type != "cpu":
+                torch.cuda.synchronize()
+
+            # 最終事件已完成，停止Nano單幀計時
+            GPIO.output(
+                NANO_MEASURE_PIN,
+                GPIO.LOW,
+            )
+
+            current_uart_time = (
+                time.monotonic()
+            )
+
+            event_changed = (
+                uart_packet != last_uart_packet
+            )
+
+            resend_due = (
+                current_uart_time
+                - last_uart_send_time
+                >= UART_RESEND_INTERVAL_SECONDS
+            )
+
+            if LATENCY_TEST_MODE:
+                # 延遲測試：只有事件改變時才傳一次
+                should_send_uart = event_changed
+            else:
+                # 正常模式：事件改變立即傳，否則每0.5秒重送
+                should_send_uart = (
+                    event_changed or resend_due
+                )
+
+            if (
+                stm32_uart is not None
+                and should_send_uart
+            ):
+                try:
+                    stm32_uart.write(
+                        uart_packet
+                    )
+                    stm32_uart.flush()
+
+                    last_uart_packet = (
+                        uart_packet
+                    )
+                    last_uart_send_time = (
+                        current_uart_time
+                    )
+
+                    print(
+                        f"📤 Nano -> STM32："
+                        f"{uart_code}"
+                    )
+
+                except serial.SerialException as uart_error:
+                    print(
+                        f"⚠️ UART 傳送失敗："
+                        f"{uart_error}"
+                    )
+
+                    try:
+                        stm32_uart.close()
+                    except Exception:
+                        pass
+
+                    stm32_uart = None
 
             # 終端機印出 UART 編碼
             # 整理 VRU 統計字串
@@ -698,7 +871,37 @@ def run(
 
         # Print time (inference-only)
         #LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1e3:.1f}ms")
+    # =========================================================
+    # 影片處理結束，關閉 UART
+    # =========================================================
+    if stm32_uart is not None:
+        try:
+            stm32_uart.close()
 
+            print(
+                "✅ STM32 UART 已關閉"
+            )
+
+        except serial.SerialException as uart_error:
+            print(
+                f"⚠️ UART 關閉失敗："
+                f"{uart_error}"
+            )
+    # =========================================================
+    # 關閉Nano計時GPIO
+    # =========================================================
+    try:
+        GPIO.output(
+            NANO_MEASURE_PIN,
+            GPIO.LOW,
+        )
+        GPIO.cleanup(
+            NANO_MEASURE_PIN
+        )
+        print("✅ Nano Pin12 延遲量測訊號已關閉")
+
+    except Exception as gpio_error:
+        print(f"⚠️ Nano GPIO關閉失敗：{gpio_error}")
     # Print results
     t = tuple(x.t / seen * 1e3 for x in dt)  # speeds per image
     LOGGER.info(f"Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {(1, 3, *imgsz)}" % t)
